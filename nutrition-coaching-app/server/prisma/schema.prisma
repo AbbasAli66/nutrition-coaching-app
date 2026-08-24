@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  COACH
+  CLIENT
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role     @default(CLIENT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Coach-Client relationship
+  coachId   String?
+  coach     User?    @relation("CoachClients", fields: [coachId], references: [id])
+  clients   User[]   @relation("CoachClients")
+
+  // Related models
+  nutritionPlans NutritionPlan[]
+  dailyLogs      DailyLog[]
+  checkIns       CheckIn[]
+}
+
+model NutritionPlan {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  caloriesTarget Int
+  proteinTarget  Float
+  carbsTarget    Float
+  fatsTarget     Float
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model DailyLog {
+  id             String     @id @default(uuid())
+  userId         String
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date           DateTime   @default(now())
+  weight         Float?
+  waterIntakeMl  Int?       @default(0)
+  meals          MealItem[]
+  createdAt      DateTime   @default(now())
+
+  @@unique([userId, date])
+}
+
+model MealItem {
+  id         String   @id @default(uuid())
+  dailyLogId String
+  dailyLog   DailyLog @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
+  name       String
+  mealType   MealType
+  calories   Float
+  protein    Float
+  carbs      Float
+  fats       Float
+  servingQty Float    @default(1)
+  createdAt  DateTime @default(now())
+}
+
+model CheckIn {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  averageWeight   Float
+  energyRating    Int
+  digestionRating Int
+  sleepHours      Float
+  adherenceScore  Int
+  clientNotes     String?
+  coachFeedback   String?
+  reviewed        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+}
