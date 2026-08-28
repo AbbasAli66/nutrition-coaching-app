@@ -1,4 +1,4 @@
-import { date, z } from "zod";
+import { z } from "zod";
 import prisma from "../config/db.js";
 
 //Validation Schema for progress Check-in

@@ -5,6 +5,7 @@ import prisma from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import planRoutes from  "./routes/planRoutes.js";
 import logRoutes from "./routes/logRoutes.js";
+import progressRoutes from "./routes/progressRoutes.js";
 
 dotenv.config();
 
@@ -18,6 +19,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/plans", planRoutes);
 app.use("/api/logs", logRoutes);
+app.use("/api/progress", progressRoutes);
 
 // Health Check Route
 app.get("/api/health", async (req, res) => {
