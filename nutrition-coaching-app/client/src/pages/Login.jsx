@@ -9,20 +9,36 @@ export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    try {
-      const user = await login(email, password);
-      if (user.role === 'COACH') {
-        navigate('/coach-dashboard');
-      } else {
-        navigate('/client-dashboard');
-      }
-    } catch (err) {
-      setError(err.response?.data?.message || 'Invalid email or password');
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setError('');
+  try {
+   const data = await login(email, password);
+    // 1. Save token and user into localStorage first
+    if (data?.token) {
+      localStorage.setItem('token', data.token);
     }
-  };
+    if (data?.user) {
+      localStorage.setItem('user', JSON.stringify(data.user));
+    }
+    
+    // Handle both `user` object directly or `data.user`
+    const currentUser = data?.user || data;
+
+    if (!currentUser || !currentUser.role) {
+      throw new Error('User role missing in response');
+    }
+
+    if (currentUser.role.toUpperCase() === 'COACH') {
+      navigate('/coach-dashboard', { replace: true });
+    } else {
+      navigate('/client-dashboard', { replace: true });
+    }
+  } catch (err) {
+    console.error('Login submit error:', err);
+    setError(err.response?.data?.message || err.message || 'Invalid email or password');
+  }
+};
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4 text-white">

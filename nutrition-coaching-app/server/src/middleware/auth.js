@@ -1,28 +1,39 @@
-import jwt from "jsonwebtoken";
+import jwt from 'jsonwebtoken';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your_fallback_secret_key';
 
 export const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1]; // Format: "Bearer <TOKEN>"
+  const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+  let token = null;
+
+  if (authHeader) {
+    if (authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else {
+      token = authHeader;
+    }
+  }
 
   if (!token) {
-    return res.status(401).json({ message: "Access denied. No token provided." });
+    return res.status(401).json({ message: 'Access denied. No token provided.' });
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // Contains id, email, role
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
     next();
   } catch (error) {
-    return res.status(403).json({ message: "Invalid or expired token." });
+    console.error('JWT Verification Error:', error.message);
+    return res.status(403).json({ message: 'Invalid or expired token.' });
   }
 };
 
-// Middleware to restrict access based on Role (e.g. COACH or CLIENT)
 export const authorizeRoles = (...allowedRoles) => {
   return (req, res, next) => {
-    if (!req.user || !allowedRoles.includes(req.user.role)) {
+    const flatRoles = allowedRoles.flat();
+    if (!req.user || !flatRoles.includes(req.user.role)) {
       return res.status(403).json({
-        message: "Forbidden: You do not have permission to access this resource.",
+        message: 'Forbidden: You do not have permission to access this resource.',
       });
     }
     next();

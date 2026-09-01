@@ -1,125 +1,207 @@
 import { z } from "zod";
 import prisma from "../config/db.js";
 
+// Helper to normalize dates to midnight UTC
+const getMidnightDate = (dateStr) => {
+  const d = dateStr ? new Date(dateStr) : new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+};
+
+// Zod Schema with flexible coercion
 const mealItemSchema = z.object({
-    name: z.string().min(1, "Food name is required"),
-    calories: z.number().nonnegative(),
-    protein: z.number().nonnegative(),
-    carbs: z.number().nonnegative(),
-    fats: z.number().nonnegative(),
-    mealType: z.enum(["Breakfast", "Lunch", "Dinner", "Snack"]),
+  date: z.string().optional(),
+  name: z.string().min(1, "Meal name is required"),
+  mealType: z.preprocess(
+    (val) => (typeof val === "string" ? val.toUpperCase() : val),
+    z.enum(["BREAKFAST", "LUNCH", "DINNER", "SNACK"])
+  ),
+  calories: z.coerce.number().min(0, "Calories must be positive"),
+  protein: z.coerce.number().min(0, "Protein must be positive"),
+  carbs: z.coerce.number().min(0, "Carbs must be positive"),
+  fats: z.coerce.number().min(0, "Fats must be positive"),
+  servingQty: z.coerce.number().positive().default(1),
 });
 
-const logEntrySchema = z.object({
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"),
-    waterIntake: z.number().nonnegative().optional(),
-    meals: z.array(mealItemSchema).min(1, "At least one meal item is required"),
+// Zod Schema for daily metrics
+const dailyMetricsSchema = z.object({
+  date: z.string().optional(),
+  weight: z.coerce.number().positive().optional().nullable(),
+  waterIntakeMl: z.coerce.number().int().min(0).optional(),
 });
 
-//Log daily meal items
+// GET /api/logs/:date or /api/logs/today
+export const getDailyLog = async (req, res) => {
+  try {
+    const targetUserId = req.params.userId || req.user.id;
+    const dateParam = req.params.date === "today" ? undefined : req.params.date || req.query.date;
+    const targetDate = getMidnightDate(dateParam);
 
-export const addDailyLog = async (req, res) => {
-    try {
-        const validateData = logEntrySchema.parse(req.body);
-        const logDate = new Date(validateData.date);
+    let dailyLog = await prisma.dailyLog.findFirst({
+      where: {
+        userId: targetUserId,
+        date: targetDate,
+      },
+      include: {
+        meals: true,
+      },
+    });
 
-        // Find or create the Dailylog entry for this user and date
-        let dailyLog = await prisma.dailyLog.findUnique({
-            where: {
-                userId_date: {
-                    userId: req.user.Id,
-                    date: logDate,
-                },
-            },
-        });
-
-        if (!dailylog) {
-            dailyLog = await prisma.dailyLog.create({
-                date: {
-                    userId: req.user.id,
-                    date: logDate,
-                    waterIntake: validateData.waterIntake || 0,
-                },
-            })
-        }
-
-        //Insert Meal Items
-        const createdMeals = await prisma.mealItem.createMany({
-            date: validateData.meals.map((meal) => ({
-                dailyLogId: dailyLog.id,
-                name: meal.name,
-                calories: meal.calories,
-                protein: meal.protein,
-                carbs: meal.carbs,
-                fats: meal.fats,
-                mealType: meal.mealType
-            })),
-        });
-
-        res.status(201).json({
-            message: "Meals logged successfully",
-            dailyLogId: dailyLog.id,
-            itemAdded: createdMeals.count,
-
-        });
+    if (!dailyLog) {
+      dailyLog = await prisma.dailyLog.create({
+        data: {
+          userId: targetUserId,
+          date: targetDate,
+          waterIntakeMl: 0,
+        },
+        include: {
+          meals: true,
+        },
+      });
     }
-    catch (error){
-        if (error instanceof z.ZodError) {
-            return res.status(400).json({ error: error.errors});
-        }
-        res.status(500).json({ message: "Server error", error: error.message});
+
+    const activePlan = await prisma.nutritionPlan.findFirst({
+      where: { userId: targetUserId, isActive: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const totals = (dailyLog.meals || []).reduce(
+      (acc, meal) => {
+        const qty = meal.servingQty || 1;
+        acc.calories += meal.calories * qty;
+        acc.protein += meal.protein * qty;
+        acc.carbs += meal.carbs * qty;
+        acc.fats += meal.fats * qty;
+        return acc;
+      },
+      { calories: 0, protein: 0, carbs: 0, fats: 0 }
+    );
+
+    return res.status(200).json({
+      dailyLog,
+      totals,
+      activePlan: activePlan || null,
+    });
+  } catch (error) {
+    console.error("Get Daily Log Error:", error);
+    return res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// POST /api/logs or /api/logs/meal
+export const addMealItem = async (req, res) => {
+  try {
+    // Map alternate frontend keys (e.g., category, mealCategory) to mealType
+    const payload = { ...req.body };
+    if (!payload.mealType && (payload.category || payload.mealCategory)) {
+      payload.mealType = payload.category || payload.mealCategory;
     }
-     };
 
-     //Get Daily Log by Date with calculated totals
-     export const getDailyLogByDate = async (req, res) => {
-        try {
-            const { date } = req.params;
-            const targetUserId = req.query.userId || req.user.id;
-            const log = await prisma.dailyLog.findUnique({
-                where: {
-                    userId_date: {
-                        userId: targetUserId,
-                        date: new Date(date),
+    const validatedData = mealItemSchema.parse(payload);
+    const targetDate = getMidnightDate(validatedData.date);
 
-                    },
-                },
-                include:{
-                    meals: true,
-                },
-            });
+    let dailyLog = await prisma.dailyLog.findFirst({
+      where: {
+        userId: req.user.id,
+        date: targetDate,
+      },
+    });
 
-            if (!log) {
-                return res.status(200).json({
-                    date,
-                    totalCalories: 0,
-                    totalProtein: 0,
-                    totalCarbs: 0,
-                    totalFats: 0,
-                    meals: [],
-                });
-            }
-        //Aggregate totals
-        const totals = log.meals.reduce(
-            (acc, item) => {
-                acc.calories += item.calories;
-                acc.protein += item.protein;
-                acc.carbs += item.carbs;
-                acc.fats += item.fats;
-                return acc;
-            },
-            {calories: 0, protein: 0, carbs: 0, fats: 0}
-        );
-        res.status(200).json({
-            id: log.id,
-            date: log.date,
-            waterIntake: log.waterIntake,
-            totals,
-            meals: log.meals,
+    if (!dailyLog) {
+      dailyLog = await prisma.dailyLog.create({
+        data: {
+          userId: req.user.id,
+          date: targetDate,
+        },
+      });
+    }
 
-        });
-        } catch (error){
-            res.status(500).json({ message: "Server error", error: error.message});
-        }
+    const mealItem = await prisma.mealItem.create({
+      data: {
+        dailyLogId: dailyLog.id,
+        name: validatedData.name,
+        mealType: validatedData.mealType,
+        calories: validatedData.calories,
+        protein: validatedData.protein,
+        carbs: validatedData.carbs,
+        fats: validatedData.fats,
+        servingQty: validatedData.servingQty || 1,
+      },
+    });
 
-        };
+    return res.status(201).json({
+      message: "Meal item logged successfully",
+      mealItem,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      console.error("Validation Error Details:", error.errors);
+      return res.status(400).json({ errors: error.errors });
+    }
+    console.error("Add Meal Error:", error);
+    return res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// DELETE /api/logs/meal/:mealId
+export const deleteMealItem = async (req, res) => {
+  try {
+    const { mealId } = req.params;
+
+    const meal = await prisma.mealItem.findUnique({
+      where: { id: mealId },
+      include: { dailyLog: true },
+    });
+
+    if (!meal || meal.dailyLog.userId !== req.user.id) {
+      return res.status(404).json({ message: "Meal item not found or unauthorized" });
+    }
+
+    await prisma.mealItem.delete({
+      where: { id: mealId },
+    });
+
+    return res.status(200).json({ message: "Meal item deleted successfully" });
+  } catch (error) {
+    console.error("Delete Meal Error:", error);
+    return res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// PATCH /api/logs/metrics
+export const updateDailyMetrics = async (req, res) => {
+  try {
+    const validatedData = dailyMetricsSchema.parse(req.body);
+    const targetDate = getMidnightDate(validatedData.date);
+
+    const updateData = {};
+    if (validatedData.weight !== undefined) updateData.weight = validatedData.weight;
+    if (validatedData.waterIntakeMl !== undefined) updateData.waterIntakeMl = validatedData.waterIntakeMl;
+
+    const dailyLog = await prisma.dailyLog.upsert({
+      where: {
+        userId_date: {
+          userId: req.user.id,
+          date: targetDate,
+        },
+      },
+      update: updateData,
+      create: {
+        userId: req.user.id,
+        date: targetDate,
+        ...updateData,
+      },
+    });
+
+    return res.status(200).json({
+      message: "Daily metrics updated",
+      dailyLog,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ errors: error.errors });
+    }
+    console.error("Update Metrics Error:", error);
+    return res.status(500).json({ message: "Server error", error: error.message });
+  }
+};

@@ -3,9 +3,10 @@ import cors from "cors";
 import dotenv from "dotenv";
 import prisma from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
-import planRoutes from  "./routes/planRoutes.js";
+import planRoutes from "./routes/planRoutes.js";
 import logRoutes from "./routes/logRoutes.js";
 import progressRoutes from "./routes/progressRoutes.js";
+import clientRoutes from './routes/clientRoutes.js';
 
 dotenv.config();
 
@@ -15,11 +16,13 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors());
 app.use(express.json());
-//Routes
+
+// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/plans", planRoutes);
 app.use("/api/logs", logRoutes);
 app.use("/api/progress", progressRoutes);
+app.use('/api/clients', clientRoutes);
 
 // Health Check Route
 app.get("/api/health", async (req, res) => {
