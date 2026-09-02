@@ -61,7 +61,9 @@ export default function PlanModal({ isOpen, onClose, client, onPlanCreated }) {
           <Target className="w-6 h-6 text-emerald-400" />
           <h2 className="text-xl font-bold text-white">Prescribe Plan</h2>
         </div>
-        <p className="text-xs text-zinc-400 mb-4">Assigning targets for {client.name || client.email}</p>
+        <p className="text-xs text-zinc-400 mb-4">
+          Assigning targets for {client.name || client.email}
+        </p>
 
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-3 rounded-lg mb-4 text-center">
@@ -71,7 +73,9 @@ export default function PlanModal({ isOpen, onClose, client, onPlanCreated }) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">Plan Title</label>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">
+              Plan Title
+            </label>
             <input
               type="text"
               name="name"
@@ -83,7 +87,9 @@ export default function PlanModal({ isOpen, onClose, client, onPlanCreated }) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">Daily Calories (kcal)</label>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">
+              Daily Calories (kcal)
+            </label>
             <input
               type="number"
               name="calories"
@@ -96,7 +102,9 @@ export default function PlanModal({ isOpen, onClose, client, onPlanCreated }) {
 
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1">Protein (g)</label>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">
+                Protein (g)
+              </label>
               <input
                 type="number"
                 name="protein"
@@ -107,7 +115,9 @@ export default function PlanModal({ isOpen, onClose, client, onPlanCreated }) {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1">Carbs (g)</label>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">
+                Carbs (g)
+              </label>
               <input
                 type="number"
                 name="carbs"
@@ -118,7 +128,9 @@ export default function PlanModal({ isOpen, onClose, client, onPlanCreated }) {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1">Fats (g)</label>
+              <label className="block text-xs font-medium text-zinc-400 mb-1">
+                Fats (g)
+              </label>
               <input
                 type="number"
                 name="fats"
@@ -131,13 +143,15 @@ export default function PlanModal({ isOpen, onClose, client, onPlanCreated }) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1">Coach Protocol Notes</label>
+            <label className="block text-xs font-medium text-zinc-400 mb-1">
+              Coach Protocol Notes
+            </label>
             <textarea
               name="notes"
               rows={2}
               value={formData.notes}
               onChange={handleChange}
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 text-sm"
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 text-sm resize-none"
             />
           </div>
 

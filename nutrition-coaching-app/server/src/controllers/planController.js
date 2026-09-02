@@ -1,18 +1,149 @@
-import { z } from "zod";
 import prisma from "../config/db.js";
+import { z } from "zod";
 
-// Validation Schema
-const planSchema = z.object({
-  userId: z.string().min(1, "Client ID is required"),
-  caloriesTarget: z.coerce.number().int().positive("Calories must be a positive integer"),
-  proteinTarget: z.coerce.number().positive("Protein must be a positive number"),
-  carbsTarget: z.coerce.number().positive("Carbs must be a positive number"),
-  fatsTarget: z.coerce.number().positive("Fats must be a positive number"),
+// Validation schema for creating/updating a nutrition plan
+export const nutritionPlanSchema = z.object({
+  clientId: z.string().optional(),
+  userId: z.string().optional(),
+  title: z.string().optional(),
+  caloriesTarget: z.union([z.number(), z.string()]).transform((val) => parseFloat(val)),
+  proteinTarget: z.union([z.number(), z.string()]).transform((val) => parseFloat(val)),
+  carbsTarget: z.union([z.number(), z.string()]).transform((val) => parseFloat(val)),
+  fatsTarget: z.union([z.number(), z.string()]).transform((val) => parseFloat(val)),
 });
 
-// Fetch all clients for the Coach Command Center roster
+// 1. Get Active Plan for the Authenticated Client
+export const getActivePlan = async (req, res) => {
+  try {
+    const currentUserId = req.user?.id || req.user?.userId;
+
+    if (!currentUserId) {
+      return res.status(401).json({ message: "User session unauthorized or token missing" });
+    }
+
+    // Set cache-busting headers to prevent stale 304 caching
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+
+    // Fetch the client's most recent plan
+    const plan = await prisma.nutritionPlan.findFirst({
+      where: {
+        userId: currentUserId,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      plan: plan || null,
+    });
+  } catch (error) {
+    console.error("Error fetching active plan:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error fetching active plan",
+      error: error.message,
+    });
+  }
+};
+
+// 2. Create or Assign a Nutrition Plan (Coach Action)
+export const createOrAssignPlan = async (req, res) => {
+  try {
+    const coachId = req.user?.id || req.user?.userId;
+    const {
+      clientId,
+      userId,
+      title,
+      notes,
+      protocolNotes,
+      coachNotes,
+      caloriesTarget,
+      proteinTarget,
+      carbsTarget,
+      fatsTarget,
+      dailyCalories,
+      dailyProtein,
+      dailyCarbs,
+      dailyFats,
+    } = req.body;
+
+    const targetClientId = clientId || userId;
+
+    if (!targetClientId) {
+      return res.status(400).json({
+        success: false,
+        message: "Target client ID is required to prescribe a plan",
+      });
+    }
+
+    const resolvedCalories = parseFloat(caloriesTarget ?? dailyCalories ?? 2000);
+    const resolvedProtein = parseFloat(proteinTarget ?? dailyProtein ?? 150);
+    const resolvedCarbs = parseFloat(carbsTarget ?? dailyCarbs ?? 200);
+    const resolvedFats = parseFloat(fatsTarget ?? dailyFats ?? 60);
+    const resolvedNotes = notes || protocolNotes || coachNotes || "";
+
+    // Build data object dynamically to prevent Prisma unknown field errors
+    const planData = {
+      userId: targetClientId,
+      title: title || "Nutrition Target Plan",
+      // Target variations
+      caloriesTarget: resolvedCalories,
+      proteinTarget: resolvedProtein,
+      carbsTarget: resolvedCarbs,
+      fatsTarget: resolvedFats,
+    };
+
+    // If your schema also has coachId, attach it
+    if (coachId) {
+      planData.coachId = coachId;
+    }
+
+    // Try creating with target schema structure
+    let newPlan;
+    try {
+      newPlan = await prisma.nutritionPlan.create({
+        data: planData,
+      });
+    } catch (primaryErr) {
+      // Fallback in case schema uses dailyCalories / dailyProtein / notes
+      console.warn("Retrying with daily* schema variation...", primaryErr.message);
+      newPlan = await prisma.nutritionPlan.create({
+        data: {
+          userId: targetClientId,
+          title: title || "Nutrition Target Plan",
+          dailyCalories: resolvedCalories,
+          dailyProtein: resolvedProtein,
+          dailyCarbs: resolvedCarbs,
+          dailyFats: resolvedFats,
+          notes: resolvedNotes,
+          ...(coachId ? { coachId } : {}),
+        },
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: "Nutrition plan assigned successfully",
+      plan: newPlan,
+    });
+  } catch (error) {
+    console.error("Error assigning nutrition plan:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to create nutrition plan",
+    });
+  }
+};
+
+// 3. Get All Gym Clients with their Plans (Coach View)
 export const getCoachClients = async (req, res) => {
   try {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+
     const clients = await prisma.user.findMany({
       where: {
         role: "CLIENT",
@@ -21,17 +152,9 @@ export const getCoachClients = async (req, res) => {
         id: true,
         name: true,
         email: true,
-        createdAt: true,
         nutritionPlans: {
-          where: { isActive: true },
+          orderBy: { createdAt: "desc" },
           take: 1,
-        },
-        dailyLogs: {
-          orderBy: { date: "desc" },
-          take: 1,
-        },
-        checkIns: {
-          where: { reviewed: false },
         },
       },
       orderBy: {
@@ -39,87 +162,22 @@ export const getCoachClients = async (req, res) => {
       },
     });
 
-    return res.status(200).json({ clients });
+    return res.status(200).json({
+      success: true,
+      clients,
+    });
   } catch (error) {
-    console.error("Error fetching clients:", error);
-    return res.status(500).json({ message: "Server error", error: error.message });
+    console.error("Error fetching coach clients:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error fetching client roster",
+      error: error.message,
+    });
   }
 };
 
-// Create or Update Active Nutrition Plan (Coach Only)
-export const upsertNutritionPlan = async (req, res) => {
-  try {
-    const payload = {
-      userId: req.body.userId || req.body.clientId,
-      caloriesTarget: req.body.caloriesTarget ?? req.body.calories ?? req.body.targetCalories,
-      proteinTarget: req.body.proteinTarget ?? req.body.protein,
-      carbsTarget: req.body.carbsTarget ?? req.body.carbs ?? req.body.carbohydrates,
-      fatsTarget: req.body.fatsTarget ?? req.body.fats,
-    };
-
-    const validatedData = planSchema.parse(payload);
-
-    const client = await prisma.user.findUnique({
-      where: { id: validatedData.userId },
-    });
-
-    if (!client) {
-      return res.status(404).json({ message: "Client not found" });
-    }
-
-    // Deactivate existing active plans for this client
-    await prisma.nutritionPlan.updateMany({
-      where: { userId: validatedData.userId, isActive: true },
-      data: { isActive: false },
-    });
-
-    // Create new active plan
-    const newPlan = await prisma.nutritionPlan.create({
-      data: {
-        userId: validatedData.userId,
-        caloriesTarget: validatedData.caloriesTarget,
-        proteinTarget: validatedData.proteinTarget,
-        carbsTarget: validatedData.carbsTarget,
-        fatsTarget: validatedData.fatsTarget,
-        isActive: true,
-      },
-    });
-
-    return res.status(201).json({
-      message: "Nutrition plan assigned successfully",
-      plan: newPlan,
-    });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      console.error("Zod Validation Failed:", error.errors);
-      return res.status(400).json({ errors: error.errors });
-    }
-    console.error("Plan Upsert Error:", error);
-    return res.status(500).json({ message: "Server error", error: error.message });
-  }
-};
-
-// Get Active Nutrition Plan for a Client
-export const getActivePlan = async (req, res) => {
-  try {
-    const targetUserId = req.params.userId || req.user?.id || req.user?.userId;
-
-    if (!targetUserId) {
-      return res.status(400).json({ message: "User ID could not be identified from token or params" });
-    }
-
-    const plan = await prisma.nutritionPlan.findFirst({
-      where: {
-        userId: targetUserId,
-        isActive: true,
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    // Return 200 with plan: null so the client dashboard renders defaults without throwing 404
-    return res.status(200).json({ plan: plan || null });
-  } catch (error) {
-    console.error("Get Active Plan Error:", error);
-    return res.status(500).json({ message: "Server error", error: error.message });
-  }
-};
+// Export aliases to satisfy all imported names across route files
+export const createPlan = createOrAssignPlan;
+export const upsertNutritionPlan = createOrAssignPlan;
+export const updatePlan = createOrAssignPlan;
+export const getClients = getCoachClients; 

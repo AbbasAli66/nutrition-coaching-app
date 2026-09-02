@@ -29,13 +29,26 @@ export const authenticateToken = (req, res, next) => {
 };
 
 export const authorizeRoles = (...allowedRoles) => {
+  const normalizedAllowed = allowedRoles
+    .flat()
+    .map((role) => String(role).trim().toUpperCase());
+
   return (req, res, next) => {
-    const flatRoles = allowedRoles.flat();
-    if (!req.user || !flatRoles.includes(req.user.role)) {
+    // Resolve user role across common JWT payload structures
+    const rawRole = req.user?.role || req.user?.user?.role || '';
+    const userRole = String(rawRole).trim().toUpperCase();
+
+    if (!userRole || !normalizedAllowed.includes(userRole)) {
+      console.warn(
+        `[403 Forbidden] User role '${userRole || 'UNDEFINED'}' does not match allowed roles: [${normalizedAllowed.join(', ')}]`
+      );
       return res.status(403).json({
         message: 'Forbidden: You do not have permission to access this resource.',
+        required: normalizedAllowed,
+        current: userRole,
       });
     }
+
     next();
   };
 };

@@ -1,18 +1,39 @@
 import { Router } from "express";
 import {
-    addCheckIn,
-    getProgressHistory,
-    getCoachClients,
-}
-from "../controllers/progressController.js";
+  submitCheckIn,
+  getClientCheckIns,
+  getPendingCheckIns,
+  reviewCheckIn,
+} from "../controllers/progressController.js";
 import { authenticateToken, authorizeRoles } from "../middleware/auth.js";
 
 const router = Router();
-//client routers
-router.post("/checkIn", authenticateToken, addCheckIn);
-router.get("/history", authenticateToken, getProgressHistory);
 
-//coach specific routes
-router.get("/coach/clients", authenticateToken, authorizeRoles("COACH"), getCoachClients);
-router.get("/history/:userId", authenticateToken, authorizeRoles("COACH"), getProgressHistory);
+// Client routes
+router.post("/check-in", authenticateToken, submitCheckIn);
+router.post("/checkIn", authenticateToken, submitCheckIn);
+router.get("/history", authenticateToken, getClientCheckIns);
+
+// Coach routes
+router.get(
+  "/coach/pending",
+  authenticateToken,
+  authorizeRoles("COACH"),
+  getPendingCheckIns
+);
+
+router.patch(
+  "/coach/review/:checkInId",
+  authenticateToken,
+  authorizeRoles("COACH"),
+  reviewCheckIn
+);
+
+router.get(
+  "/history/:userId",
+  authenticateToken,
+  authorizeRoles("COACH"),
+  getClientCheckIns
+);
+
 export default router;
